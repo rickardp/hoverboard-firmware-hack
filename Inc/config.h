@@ -76,9 +76,9 @@
 
 // ###### MOTOR TEST MODE ######
 // slowly move both wheels forward and backward, ignoring all inputs
-#define CONTROL_MOTOR_TEST
-#define CONTROL_MOTOR_TEST_MAX_SPEED 300         // sweep slowly from -MAX_SPEED to MAX_SPEED (0 - 1000)
-
+//#define CONTROL_MOTOR_TEST
+#define CONTROL_MOTOR_TEST_MAX_SPEED 1000         // sweep slowly from -MAX_SPEED to MAX_SPEED (0 - 1000)
+#define CONTROL_ADC
 // ############################### DRIVING BEHAVIOR ###############################
 
 // inputs:
@@ -89,12 +89,12 @@
 // - speedR and speedL: normal driving -1000 to 1000
 // - weakr and weakl: field weakening for extra boost at high speed (speedR > 700 and speedL > 700). 0 to ~400
 
-#define FILTER              0.1  // lower value == softer filter. do not use values <0.01, you will get float precision issues.
-#define SPEED_COEFFICIENT   0.5  // higher value == stronger. 0.0 to ~2.0?
-#define STEER_COEFFICIENT   0.5  // higher value == stronger. if you do not want any steering, set it to 0.0; 0.0 to 1.0
+#define FILTER              0.01  // lower value == softer filter. do not use values <0.01, you will get float precision issues.
+#define SPEED_COEFFICIENT   0.4  // higher value == stronger. 0.0 to ~2.0?
+#define STEER_COEFFICIENT   0.0  // higher value == stronger. if you do not want any steering, set it to 0.0; 0.0 to 1.0
 #define INVERT_R_DIRECTION
 #define INVERT_L_DIRECTION
-#define BEEPS_BACKWARD 1    // 0 or 1
+#define BEEPS_BACKWARD 0    // 0 or 1
 
 //Turbo boost at high speeds while button1 is pressed:
 //#define ADDITIONAL_CODE \
@@ -187,6 +187,8 @@ else {\
     #error select exactly 1 input method in config.h!
   #endif
   #define CONTROL_DEFINED
+#else
+  //#define CONTROL_POWEROFF_MAX_SPEED 20
 #endif
 
 #ifndef CONTROL_DEFINED

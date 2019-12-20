@@ -23,6 +23,7 @@
 #include "defines.h"
 #include "setup.h"
 #include "config.h"
+#include "imperial_march.h"
 //#include "hd44780.h"
 
 void SystemClock_Config(void);
@@ -36,8 +37,8 @@ extern volatile adc_buf_t adc_buffer;
 extern I2C_HandleTypeDef hi2c2;
 extern UART_HandleTypeDef huart2;
 
-int cmd1;  // normalized input values. -1000 to 1000
-int cmd2;
+float cmd1;  // normalized input values. -1000 to 1000
+float cmd2;
 int cmd3;
 
 typedef struct{
@@ -50,8 +51,8 @@ volatile Serialcommand command;
 
 uint8_t button1, button2;
 
-int steer; // global variable for steering. -1000 to 1000
-int speed; // global variable for speed. -1000 to 1000
+float steer; // global variable for steering. -1000 to 1000
+float speed; // global variable for speed. -1000 to 1000
 
 extern volatile int pwml;  // global variable for pwm left. -1000 to 1000
 extern volatile int pwmr;  // global variable for pwm right. -1000 to 1000
@@ -79,19 +80,54 @@ extern volatile uint16_t ppm_captured_value[PPM_NUM_CHANNELS+1];
 int milli_vel_error_sum = 0;
 
 
+static void play_pcm(const unsigned char* buf, int len) {
+  unsigned char qe = 0;
+  for(const unsigned char* pc = buf; pc < buf + len; ++pc) {
+    unsigned char c = *pc;
+    /*const int nins = 50;
+    for(int i = 8; i; --i) {
+      int non = (nins * c) / 255;
+      int noff = nins - non;
+      HAL_GPIO_WritePin(BUZZER_PORT, BUZZER_PIN, 1);
+      for(int j=non; j; --j) {
+        asm("NOP");
+      }
+      HAL_GPIO_WritePin(BUZZER_PORT, BUZZER_PIN, 0);
+      for(int j=noff; j; --j) {
+        asm("NOP");
+      }
+    }*/
+    for(int i = 0; i < 16; ++i) {
+      int y = c >= qe;
+      HAL_GPIO_WritePin(BUZZER_PORT, BUZZER_PIN, y);
+      for(int j=0; j < 25; ++j) {
+        asm("NOP");
+      }
+      qe = y * 255 - c + qe;
+    }
+
+  }   
+}
+
+void play_imperial_march() {
+  play_pcm(imperial_march_8k_wav + 44, imperial_march_8k_wav_len - 44);
+}
+
 void poweroff() {
-    #ifndef CONTROL_MOTOR_TEST
-    if (abs(speed) < 20) {
+    #ifdef CONTROL_POWEROFF_MAX_SPEED
+    if (abs(speed) < CONTROL_POWEROFF_MAX_SPEED) {
     #endif
         buzzerPattern = 0;
         enable = 0;
+        buzzerFreq = 0;
         for (int i = 0; i < 8; i++) {
             buzzerFreq = i;
-            HAL_Delay(100);
+            HAL_Delay(50);
         }
+        //play_imperial_march();
         HAL_GPIO_WritePin(OFF_PORT, OFF_PIN, 0);
         while(1) {}
-    #ifndef CONTROL_MOTOR_TEST
+    #ifdef CONTROL_POWEROFF_MAX_SPEED
     }
     #endif
 }
@@ -133,10 +169,24 @@ int main(void) {
 
   HAL_ADC_Start(&hadc1);
   HAL_ADC_Start(&hadc2);
-
+  
+  //play_imperial_march();
+  /*buzzerFreq = 10;
+  HAL_Delay(1000);
+  buzzerFreq = 0;
+  HAL_Delay(500);
+  buzzerFreq = 1;
+  HAL_Delay(1000);
+  buzzerFreq = 0;
+  HAL_Delay(500);
+  buzzerFreq = 5; // 1587
+  HAL_Delay(1000);
+  buzzerFreq = 0;
+  HAL_Delay(500);
+  */
   for (int i = 8; i >= 0; i--) {
     buzzerFreq = i;
-    HAL_Delay(100);
+    HAL_Delay(50);
   }
   buzzerFreq = 0;
 
@@ -216,6 +266,21 @@ int main(void) {
       button2 = (uint8_t)(adc_buffer.l_rx2 > 2000);  // ADC2
 
       timeout = 0;
+
+      /*if(cmd1 <= 0 && cmd2 <= 0) {
+        cmd1 = 0;
+      } else {
+        cmd1 = (cmd1 + cmd2)/2;
+      }
+        cmd1 = (cmd1 + cmd2)/2;*/
+        //cmd1 = 1000;
+        if(cmd2 < 200) {
+          cmd2 = 0;
+        } else if (cmd2 < 745) {
+          cmd2 = -1000;
+        } else {
+          cmd2 = 1000;
+        }
     #endif
 
     #ifdef CONTROL_SERIAL_USART2
@@ -237,12 +302,13 @@ int main(void) {
     steer = steer * (1.0 - FILTER) + cmd1 * FILTER;
     speed = speed * (1.0 - FILTER) + cmd2 * FILTER;
 
+    float speedCoefficientL = SPEED_COEFFICIENT;
+    float speedCoefficientR = SPEED_COEFFICIENT;
 
     // ####### MIXER #######
-    speedR = CLAMP(speed * SPEED_COEFFICIENT -  steer * STEER_COEFFICIENT, -1000, 1000);
-    speedL = CLAMP(speed * SPEED_COEFFICIENT +  steer * STEER_COEFFICIENT, -1000, 1000);
-
-
+    speedR = (int)CLAMP(speed * speedCoefficientR -  steer * STEER_COEFFICIENT, -1000.0f, 1000.0f);
+    speedL = (int)CLAMP(speed * speedCoefficientL +  steer * STEER_COEFFICIENT, -1000.0f, 1000.0f);
+  
     #ifdef ADDITIONAL_CODE
       ADDITIONAL_CODE;
     #endif
@@ -295,7 +361,7 @@ int main(void) {
 
 
     // ####### BEEP AND EMERGENCY POWEROFF #######
-    if ((TEMP_POWEROFF_ENABLE && board_temp_deg_c >= TEMP_POWEROFF && abs(speed) < 20) || (batteryVoltage < ((float)BAT_LOW_DEAD * (float)BAT_NUMBER_OF_CELLS) && abs(speed) < 20)) {  // poweroff before mainboard burns OR low bat 3
+    if ((TEMP_POWEROFF_ENABLE && board_temp_deg_c >= TEMP_POWEROFF) || (batteryVoltage < ((float)BAT_LOW_DEAD * (float)BAT_NUMBER_OF_CELLS) && abs(speed) < 20)) {  // poweroff before mainboard burns OR low bat 3
       poweroff();
     } else if (TEMP_WARNING_ENABLE && board_temp_deg_c >= TEMP_WARNING) {  // beep if mainboard gets hot
       buzzerFreq = 4;
